@@ -2,7 +2,7 @@ use core::{cmp::Ordering, ops::Index};
 use num_traits::Zero;
 use std::collections::BinaryHeap;
 
-/// Handles variables/points type for which nearest neighbors can be computed.
+/// Handles variable/point types for which nearest neighbors can be computed.
 pub trait Container: Index<usize, Output = Self::Elem> + Clone {
     type Elem;
     fn length(&self) -> usize;
