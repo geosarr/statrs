@@ -71,6 +71,7 @@ macro_rules! assert_almost_eq {
 pub mod consts;
 #[macro_use]
 pub mod distribution;
+pub mod density;
 pub mod euclid;
 pub mod function;
 pub mod generate;
