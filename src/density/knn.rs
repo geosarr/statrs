@@ -1,26 +1,34 @@
 use core::{cmp::Ordering, ops::Index};
-use nalgebra::Vector2;
 use num_traits::Zero;
 use std::collections::BinaryHeap;
 
-/// Handles variables/points for which nearest neighbors are computed.
+/// Handles variables/points type for which nearest neighbors can be computed.
 pub trait Container: Index<usize, Output = Self::Elem> + Clone {
     type Elem;
     fn length(&self) -> usize;
 }
+macro_rules! impl_container {
+    ($($t:ty),*) => {
+        $(
+            impl<T: Clone> Container for $t {
+                type Elem = T;
+                fn length(&self) -> usize {
+                    self.len()
+                }
+            }
+        )*
+    };
+}
+impl_container!(
+    Vec<T>,
+    nalgebra::Vector1<T>,
+    nalgebra::Vector2<T>,
+    nalgebra::Vector3<T>,
+    nalgebra::Vector4<T>,
+    nalgebra::Vector5<T>,
+    nalgebra::Vector6<T>
+);
 
-impl<T: Clone> Container for Vec<T> {
-    type Elem = T;
-    fn length(&self) -> usize {
-        self.len()
-    }
-}
-impl<T: Clone> Container for Vector2<T> {
-    type Elem = T;
-    fn length(&self) -> usize {
-        self.len()
-    }
-}
 /// Type alias for the set of k nearest neighbors of a point.
 pub type KNearestNeighbors<X, T> = BinaryHeap<KthNearestNeighbor<X, T>>;
 
