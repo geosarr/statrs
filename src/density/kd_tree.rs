@@ -1,8 +1,5 @@
 use crate::density::knn::{Container, KNearestNeighbors, KthNearestNeighbor, Order};
-use core::{
-    cmp::Ordering,
-    ops::{Index, Sub},
-};
+use core::ops::Sub;
 use num_traits::Zero;
 use std::collections::BinaryHeap;
 
@@ -27,8 +24,9 @@ impl<K> Node<K> {
 
 #[derive(Debug, Clone)]
 pub struct KdTree<K> {
-    root: Option<Box<Node<K>>>,
+    root: Option<Box<Node<usize>>>,
     len: usize,
+    data: Option<Vec<K>>,
 }
 
 impl<K> KdTree<K> {
@@ -41,7 +39,11 @@ impl<K> KdTree<K> {
     /// assert!(tree.is_empty());
     /// ```
     pub fn new() -> Self {
-        Self { root: None, len: 0 }
+        Self {
+            root: None,
+            len: 0,
+            data: None,
+        }
     }
 
     /// Gives the number of keys in the tree.
@@ -49,9 +51,7 @@ impl<K> KdTree<K> {
     /// # Example
     /// ```
     /// use statrs::density::kd_tree::KdTree;
-    /// let mut tree = KdTree::<Vec<f32>>::new();
-    /// tree.insert(vec![1.0, 2.0]);
-    /// tree.insert(vec![1.0, -1.0]);
+    /// let mut tree = KdTree::<Vec<f32>>::from([vec![1.0, 2.0], vec![1.0, -1.0]]);
     /// assert_eq!(tree.len(), 2);
     /// ```
     pub fn len(&self) -> usize {
@@ -62,8 +62,7 @@ impl<K> KdTree<K> {
     /// # Example
     /// ```
     /// use statrs::density::kd_tree::KdTree;
-    /// let mut tree = KdTree::<Vec<f32>>::new();
-    /// tree.insert(vec![0.0, 0.0]);
+    /// let tree = KdTree::<Vec<f32>>::from([vec![0.0, 0.0]]);
     /// assert!(!tree.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -75,64 +74,6 @@ impl<K: Container> KdTree<K>
 where
     K::Elem: Order,
 {
-    fn put(
-        node: &mut Option<Box<Node<K>>>,
-        key: K,
-        coordinate: usize,
-    ) -> Option<&mut Box<Node<K>>> {
-        match node {
-            None => *node = Some(Box::new(Node::new(key, Some(coordinate)))),
-            Some(ref mut nod) => match key[coordinate].total_cmp(&nod.key[coordinate]) {
-                Ordering::Less => {
-                    let coordinate = (nod.coordinate.unwrap() + 1) % key.length();
-                    return Self::put(&mut nod.left, key, coordinate);
-                }
-                Ordering::Greater => {
-                    let coordinate = (nod.coordinate.unwrap() + 1) % key.length();
-                    return Self::put(&mut nod.right, key, coordinate);
-                }
-                Ordering::Equal => {
-                    // Used to overwrite the current node's value, but doing so would change
-                    // (possibly) the value of the current node's key, which changes the
-                    // label/target of the predictor in the nearest neighbors algorithms.
-                    // nod.value = value;
-                    // return Some(nod);
-
-                    // Possibility to put key in the left branch also ?
-                    let coordinate = (nod.coordinate.unwrap() + 1) % key.length();
-                    return Self::put(&mut nod.right, key, coordinate);
-                }
-            },
-        }
-        None
-    }
-
-    /// Inserts a `key` in the tree.
-    ///
-    /// The caller must make sure that the tree does not already contain `key`,
-    /// to avoid duplicates and error when retrieving nearest neighbors. The caller
-    /// must also make sure that the inserted `key`'s have the same dimension.
-    ///
-    /// This method is may be useful for online tree construction, when all the
-    /// points to insert are not available at the same time. Building the
-    /// tree with this mehod does not guarantee a balanced tree, so the
-    /// caller should expect poor performance when retrieving the nearest
-    /// neighbors, however inserting an element is fast on average.
-    ///
-    /// # Example
-    /// ```
-    /// use statrs::density::kd_tree::KdTree;
-    /// let mut tree = KdTree::<Vec<i32>>::new();
-    /// tree.insert(vec![1, 1]);
-    /// tree.insert(vec![-3, 4]);
-    /// tree.insert(vec![-3, 4]); // duplicate
-    /// tree.insert(vec![5, -7]);
-    /// assert_eq!(tree.len(), 4);
-    /// ```
-    pub fn insert(&mut self, key: K) {
-        Self::put(&mut self.root, key, 0);
-        self.len += 1;
-    }
     /// Inserts `keys` in the tree.
     ///
     /// The caller must make sure that the `keys` does not have duplicate
@@ -144,6 +85,8 @@ where
     /// may expect faster nearest neighbors retrieval, at the cost of
     /// slower tree construction.
     ///
+    /// The caller must make sure that the `keys` have the same dimension.
+    ///
     /// Adapted from the paper: [Parallel k Nearest Neighbor Graph Construction
     /// Using Tree-Based Data Structures][paper].
     ///
@@ -151,45 +94,32 @@ where
     /// ```
     /// use statrs::density::kd_tree::KdTree;
     /// use nalgebra::Vector2;
-    /// let mut bt = KdTree::<_>::new();
     /// let a = Vector2::new(5., 4.);
     /// let b = Vector2::new(2., 6.);
     /// let c = Vector2::new(13., 3.);
     /// let d = Vector2::new(3., 1.);
     /// let e = Vector2::new(10., 2.);
     /// let f = Vector2::new(8., 7.);
-    /// bt.insert(a.clone());
-    /// bt.insert(b.clone());
-    /// bt.insert(c.clone());
-    /// bt.insert(d.clone());
-    /// bt.insert(e.clone());
-    /// bt.insert(f.clone());
-    /// let mut knn = bt
-    ///     .k_nearest_neighbors(&Vector2::new(9., 4.), 4, |pa, pb| (pa - pb).norm())
-    ///     .unwrap();
-    /// assert_eq!(c, knn.pop().unwrap().point);
-    /// assert_eq!(a, knn.pop().unwrap().point);
-    /// assert_eq!(f, knn.pop().unwrap().point);
-    /// assert_eq!(e, knn.pop().unwrap().point);
+    /// let mut bt = KdTree::from([a, b, c, d, e, f]);
+    /// assert_eq!(bt.len(), 6);
     /// ```
     ///
     /// [paper]: http://dx.doi.org/10.5821/hpgm15.1
-    pub fn from<Keys>(keys: Keys) -> Option<Self>
+    pub fn from<Keys>(keys: Keys) -> Self
     where
         Keys: IntoIterator<Item = K>,
         K::Elem: Sub<Output = K::Elem>,
     {
         let mut keys = keys.into_iter().collect::<Vec<_>>();
         if keys.is_empty() {
-            return None;
+            return Self::new();
         }
         let dimension = keys[0].length();
         let len = keys.len();
         let dim_max_spread = find_dim_max_spread(&keys, 0, len, dimension);
         let median = len / 2;
-        keys[0..len].sort_by(|a, b| a[dim_max_spread].total_cmp(&b[dim_max_spread]));
-        let root_key = keys[median].clone();
-        let mut root = Some(Box::new(Node::new(root_key, Some(dim_max_spread))));
+        keys[0..len].sort_by(|a, b| a.get(dim_max_spread).total_cmp(&b.get(dim_max_spread)));
+        let mut root = Some(Box::new(Node::new(median, Some(dim_max_spread))));
         build_tree(&mut root, Children::Left, &mut keys, 0, median, dimension);
         build_tree(
             &mut root,
@@ -199,7 +129,11 @@ where
             len,
             dimension,
         );
-        Some(Self { root, len })
+        Self {
+            root,
+            len,
+            data: Some(keys),
+        }
     }
 
     /// Searches the nearest neighbors of a `key` in the tree.
@@ -218,19 +152,13 @@ where
     /// ```
     /// use statrs::density::kd_tree::KdTree;
     /// use nalgebra::Vector2;
-    /// let mut bt = KdTree::<_>::new();
     /// let a = Vector2::new(5., 4.);
     /// let b = Vector2::new(2., 6.);
     /// let c = Vector2::new(13., 3.);
     /// let d = Vector2::new(3., 1.);
     /// let e = Vector2::new(10., 2.);
     /// let f = Vector2::new(8., 7.);
-    /// bt.insert(a.clone());
-    /// bt.insert(b.clone());
-    /// bt.insert(c.clone());
-    /// bt.insert(d.clone());
-    /// bt.insert(e.clone());
-    /// bt.insert(f.clone());
+    /// let mut bt = KdTree::from([a, b, c, d, e, f]);
     /// let mut knn = bt
     ///     .k_nearest_neighbors(&Vector2::new(9., 4.), 4, |pa, pb| (pa - pb).norm())
     ///     .unwrap();
@@ -252,31 +180,41 @@ where
         K::Elem: Sub<Output = K::Elem> + Order,
         D: Fn(&K, &K) -> K::Elem,
     {
-        if self.root.is_none() | (k == 0) {
+        if self.root.is_none() | (k == 0) | self.data.is_none() {
             return None;
         }
         let heap = BinaryHeap::with_capacity(k + 1);
-        Some(k_nearest_neighbors(&self.root, key, heap, k, &distance))
+        let data = self.data.as_ref().unwrap();
+        Some(
+            k_nearest_neighbors(&self.root, data, key, heap, k, &distance)
+                .iter()
+                .map(|neighbor| KthNearestNeighbor {
+                    point: data[neighbor.point].clone(),
+                    dist: neighbor.dist,
+                })
+                .collect(),
+        )
     }
 }
 
 fn k_nearest_neighbors<K, D>(
-    node: &Option<Box<Node<K>>>,
+    node: &Option<Box<Node<usize>>>,
+    data: &[K],
     key: &K,
-    mut the_bests: KNearestNeighbors<K, K::Elem>,
+    mut the_bests: KNearestNeighbors<usize, K::Elem>,
     k: usize,
     distance: &D,
-) -> KNearestNeighbors<K, K::Elem>
+) -> KNearestNeighbors<usize, K::Elem>
 where
     K: Container + PartialEq,
     K::Elem: Order + Sub<Output = K::Elem>,
     D: Fn(&K, &K) -> K::Elem,
 {
     if let Some(nod) = node {
-        let dist = distance(&nod.key, key);
+        let dist = distance(&data[nod.key], key);
         if the_bests.len() < k {
             the_bests.push(KthNearestNeighbor {
-                point: nod.key.clone(),
+                point: nod.key,
                 dist,
             });
         } else if dist < the_bests.peek().unwrap().dist {
@@ -284,19 +222,20 @@ where
             // empty, which guaranties the existence of a maximum.
             the_bests.pop();
             the_bests.push(KthNearestNeighbor {
-                point: nod.key.clone(),
+                point: nod.key,
                 dist,
             });
         }
         if let Some(coordinate) = nod.coordinate {
-            let (next, other, dist) = if key[coordinate] < nod.key[coordinate] {
-                (&nod.left, &nod.right, nod.key[coordinate] - key[coordinate])
+            let (node_val, key_val) = (data[nod.key].get(coordinate), key.get(coordinate));
+            let (next, other, dist) = if key.get(coordinate) < data[nod.key].get(coordinate) {
+                (&nod.left, &nod.right, node_val - key_val)
             } else {
-                (&nod.right, &nod.left, key[coordinate] - nod.key[coordinate])
+                (&nod.right, &nod.left, key_val - node_val)
             };
-            the_bests = k_nearest_neighbors(next, key, the_bests, k, distance);
+            the_bests = k_nearest_neighbors(next, data, key, the_bests, k, distance);
             if (dist <= the_bests.peek().unwrap().dist) | (the_bests.len() < k) {
-                the_bests = k_nearest_neighbors(other, key, the_bests, k, distance);
+                the_bests = k_nearest_neighbors(other, data, key, the_bests, k, distance);
             }
         }
     }
@@ -309,22 +248,21 @@ enum Children {
     Right,
 }
 fn build_tree<K>(
-    node: &mut Option<Box<Node<K>>>,
+    node: &mut Option<Box<Node<usize>>>,
     children: Children,
     keys: &mut Vec<K>,
     start: usize,
     end: usize,
     dimension: usize,
 ) where
-    K: Clone + Index<usize>,
-    K::Output: Order + Sub<K::Output, Output = K::Output>,
+    K: Container,
+    K::Elem: Order + Sub<Output = K::Elem>,
 {
     if start >= end {
         return;
     }
     if end == start + 1 {
-        let key = &keys[start];
-        let new_node = Some(Box::new(Node::new(key.clone(), None)));
+        let new_node = Some(Box::new(Node::new(start, None)));
         match children {
             Children::Left => {
                 if let Some(ref mut nod) = node {
@@ -340,15 +278,12 @@ fn build_tree<K>(
         return;
     }
     let dim_max_spread = find_dim_max_spread(&*keys, start, end, dimension);
-    keys[start..end].sort_by(|a, b| a[dim_max_spread].total_cmp(&b[dim_max_spread]));
+    keys[start..end].sort_by(|a, b| a.get(dim_max_spread).total_cmp(&b.get(dim_max_spread)));
     let median = start + (end - start) / 2;
     match children {
         Children::Left => {
             if let Some(ref mut nod) = node {
-                nod.left = Some(Box::new(Node::new(
-                    keys[median].clone(),
-                    Some(dim_max_spread),
-                )));
+                nod.left = Some(Box::new(Node::new(median, Some(dim_max_spread))));
                 build_tree(
                     &mut nod.left,
                     Children::Left,
@@ -369,10 +304,7 @@ fn build_tree<K>(
         }
         Children::Right => {
             if let Some(ref mut nod) = node {
-                nod.right = Some(Box::new(Node::new(
-                    keys[median].clone(),
-                    Some(dim_max_spread),
-                )));
+                nod.right = Some(Box::new(Node::new(median, Some(dim_max_spread))));
                 build_tree(
                     &mut nod.right,
                     Children::Left,
@@ -396,14 +328,14 @@ fn build_tree<K>(
 
 fn find_dim_max_spread<K>(keys: &[K], start: usize, end: usize, dimension: usize) -> usize
 where
-    K: Index<usize>,
-    K::Output: Order + Sub<Output = K::Output>,
+    K: Container,
+    K::Elem: Order + Sub<Output = K::Elem>,
 {
-    let (mut dim_max_spread, mut max_spread) = (0, <K::Output as Zero>::zero());
+    let (mut dim_max_spread, mut max_spread) = (0, K::Elem::zero());
     for dim in 0..dimension {
-        let (mut min, mut max) = (keys[start][dim], keys[start][dim]);
+        let (mut min, mut max) = (keys[start].get(dim), keys[start].get(dim));
         for key in keys.iter().take(end).skip(start + 1) {
-            let val = key[dim];
+            let val = key.get(dim);
             if val > max {
                 max = val;
             }
@@ -436,7 +368,7 @@ mod tests {
             Vector1::new(7.),
             Vector1::new(9.),
         ];
-        let tree = KdTree::from(keys).unwrap();
+        let tree = KdTree::from(keys);
         assert!(!tree.is_empty());
         let knn = tree
             .k_nearest_neighbors(&Vector1::new(6.5f64), 5, |a, b| (a - b).norm())
