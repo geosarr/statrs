@@ -6,23 +6,27 @@ use crate::function::gamma::gamma;
 
 use super::{kd_tree::KdTree, kde::Kernel1d};
 
-pub fn knn_pdf(k: usize, x: f64, samples: Vec<f64>) -> Option<f64> {
+fn orava_optimal_k(n_samples: f64) -> f64 {
+    // Adapted from K-nearest neighbour kernel density estimation, the choice of optimal k; Jan Orava 2012
+    (0.587 * n_samples.powf(4.0 / 5.0)).round().max(1.)
+}
+pub fn knn_pdf(x: f64, samples: Vec<f64>) -> Option<f64> {
     let n_samples = samples.len() as f64;
-    // let d = 1.;
-    return KdTree::from(samples)
-        .k_nearest_neighbors(&x, k, |a, b| (a - b).abs())
+    let k = orava_optimal_k(n_samples);
+    KdTree::from(samples)
+        .k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
         .map(|mut neighbors| {
             let radius = neighbors.pop().unwrap().dist;
-            // (k as f64 / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d)))
-            (k as f64 / n_samples) * (gamma(0.5 + 1.) / (PI.powf(0.5) * radius))
-        });
+            // (k / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d)))
+            (k / n_samples) * (gamma(1.5) / (PI.powf(0.5) * radius))
+        })
 }
 
-pub fn kde_pdf(k: usize, x: f64, samples: Vec<f64>, kernel: Kernel1d) -> Option<f64> {
+pub fn kde_pdf(x: f64, samples: Vec<f64>, kernel: Kernel1d) -> Option<f64> {
     let n_samples = samples.len() as f64;
     let tree = KdTree::from(samples);
-    return tree
-        .k_nearest_neighbors(&x, k, |a, b| (a - b).abs())
+    let k = orava_optimal_k(n_samples);
+    tree.k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
         .map(|mut neighbors| {
             let radius = neighbors.pop().unwrap().dist;
             (1. / (n_samples * radius))
@@ -32,7 +36,7 @@ pub fn kde_pdf(k: usize, x: f64, samples: Vec<f64>, kernel: Kernel1d) -> Option<
                     .iter()
                     .map(|xi| kernel.evaluate((x - xi) / radius))
                     .sum::<f64>()
-        });
+        })
 }
 
 /// Handles variable/point types for which nearest neighbors can be computed.
@@ -152,11 +156,12 @@ mod tests {
     fn test_knn_pdf() {
         let law = Normal::new(1., 1.).unwrap();
         let mut rng = rand::thread_rng();
-        let samples = (0..10000).map(|_| law.sample(&mut rng)).collect::<Vec<_>>();
-        let x = 0.1;
-        let k = 1000;
-        let knn_density = knn_pdf(k, x, samples.clone());
-        let kde_density = kde_pdf(k, x, samples.clone(), Kernel1d::Silverman); // { sigma: 1. }
+        let samples = (0..100000)
+            .map(|_| law.sample(&mut rng))
+            .collect::<Vec<_>>();
+        let x = 1.;
+        let knn_density = knn_pdf(x, samples.clone());
+        let kde_density = kde_pdf(x, samples.clone(), Kernel1d::Silverman); // { sigma: 1. }
         println!("Density with kkn estimator: {:?}", knn_density.unwrap());
         println!("Density with kde estimator: {:?}", kde_density.unwrap());
         println!("Pdf: {:?}", law.pdf(x));

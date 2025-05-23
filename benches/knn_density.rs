@@ -18,7 +18,7 @@ fn generate_gaussian_1d(n_samples: usize) -> Vec<f64> {
 fn bench_knn_pdf_1d(bench: &mut Bencher) {
     let samples = generate_gaussian_1d(100_000);
     bench.iter(|| {
-        let _f = statrs::density::knn::knn_pdf(1000, 0., samples.clone());
+        let _f = statrs::density::knn::knn_pdf(0., samples.clone());
     })
 }
 
@@ -27,7 +27,6 @@ fn bench_kde_pdf_1d(bench: &mut Bencher) {
     let samples = generate_gaussian_1d(100_000);
     bench.iter(|| {
         let _f = statrs::density::knn::kde_pdf(
-            1000,
             0.,
             samples.clone(),
             statrs::density::kde::Kernel1d::Epanechnikov,
