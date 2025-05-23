@@ -185,20 +185,40 @@ where
         K::Elem: Sub<Output = K::Elem> + Order,
         D: Fn(&K, &K) -> K::Elem,
     {
-        if self.root.is_none() | (k == 0) | self.data.is_none() {
-            return None;
-        }
-        let heap = BinaryHeap::with_capacity(k + 1);
-        let data = self.data.as_ref().unwrap();
-        Some(
-            k_nearest_neighbors(&self.root, data, key, heap, k, &distance)
-                .iter()
+        self.k_nearest_neighbors_raw(key, k, distance).map(|knn| {
+            let data = self.data.as_ref().unwrap();
+            knn.iter()
                 .map(|neighbor| KthNearestNeighbor {
                     point: data[neighbor.point].clone(),
                     dist: neighbor.dist,
                 })
-                .collect(),
-        )
+                .collect()
+        })
+    }
+
+    pub(crate) fn k_nearest_neighbors_raw<D>(
+        &self,
+        key: &K,
+        k: usize,
+        distance: D,
+    ) -> Option<KNearestNeighbors<usize, K::Elem>>
+    where
+        K: PartialEq,
+        K::Elem: Sub<Output = K::Elem> + Order,
+        D: Fn(&K, &K) -> K::Elem,
+    {
+        if self.root.is_none() | (k == 0) | self.data.is_none() {
+            return None;
+        }
+        let heap = BinaryHeap::with_capacity(k + 1);
+        Some(k_nearest_neighbors(
+            &self.root,
+            self.data.as_ref().unwrap(),
+            key,
+            heap,
+            k,
+            &distance,
+        ))
     }
 }
 
