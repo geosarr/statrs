@@ -10,8 +10,11 @@ fn orava_optimal_k(n_samples: f64) -> f64 {
     // Adapted from K-nearest neighbour kernel density estimation, the choice of optimal k; Jan Orava 2012
     (0.587 * n_samples.powf(4.0 / 5.0)).round().max(1.)
 }
-pub fn knn_pdf(x: f64, samples: Vec<f64>) -> Option<f64> {
-    let n_samples = samples.len() as f64;
+pub fn knn_pdf<S>(x: f64, samples: S) -> Option<f64>
+where
+    S: IntoIterator<Item = f64> + Container,
+{
+    let n_samples = samples.length() as f64;
     let k = orava_optimal_k(n_samples);
     KdTree::from(samples)
         .k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
@@ -22,8 +25,11 @@ pub fn knn_pdf(x: f64, samples: Vec<f64>) -> Option<f64> {
         })
 }
 
-pub fn kde_pdf(x: f64, samples: Vec<f64>, kernel: Kernel1d) -> Option<f64> {
-    let n_samples = samples.len() as f64;
+pub fn kde_pdf<S>(x: f64, samples: S, kernel: Kernel1d) -> Option<f64>
+where
+    S: IntoIterator<Item = f64> + Container,
+{
+    let n_samples = samples.length() as f64;
     let tree = KdTree::from(samples);
     let k = orava_optimal_k(n_samples);
     tree.k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
