@@ -4,16 +4,34 @@ use std::collections::BinaryHeap;
 
 use crate::function::gamma::gamma;
 
-use super::kd_tree::KdTree;
+use super::{kd_tree::KdTree, kde::Kernel1d};
 
-pub fn knn_density(k: usize, x: f64, samples: Vec<f64>) -> Option<f64> {
+pub fn knn_pdf(k: usize, x: f64, samples: Vec<f64>) -> Option<f64> {
     let n_samples = samples.len() as f64;
-    let d = 1.;
+    // let d = 1.;
     return KdTree::from(samples)
         .k_nearest_neighbors(&x, k, |a, b| (a - b).abs())
         .map(|mut neighbors| {
             let radius = neighbors.pop().unwrap().dist;
-            (k as f64 / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d)))
+            // (k as f64 / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d)))
+            (k as f64 / n_samples) * (gamma(0.5 + 1.) / (PI.powf(0.5) * radius))
+        });
+}
+
+pub fn kde_pdf(k: usize, x: f64, samples: Vec<f64>, kernel: Kernel1d) -> Option<f64> {
+    let n_samples = samples.len() as f64;
+    let tree = KdTree::from(samples);
+    return tree
+        .k_nearest_neighbors(&x, k, |a, b| (a - b).abs())
+        .map(|mut neighbors| {
+            let radius = neighbors.pop().unwrap().dist;
+            (1. / (n_samples * radius))
+                * tree
+                    .data()
+                    .unwrap()
+                    .iter()
+                    .map(|xi| kernel.evaluate((x - xi) / radius))
+                    .sum::<f64>()
         });
 }
 
@@ -125,24 +143,22 @@ impl_float_order!(f32, f64);
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        distribution::{Continuous, Normal},
-        statistics::Statistics,
-    };
+    use crate::distribution::{Continuous, Normal};
     use rand::distributions::Distribution;
 
     use super::*;
 
     #[test]
-    fn test_knn_density() {
+    fn test_knn_pdf() {
         let law = Normal::new(1., 1.).unwrap();
         let mut rng = rand::thread_rng();
         let samples = (0..10000).map(|_| law.sample(&mut rng)).collect::<Vec<_>>();
-        let x = 0.001;
-        let density = knn_density(1000, x, samples.clone());
-        println!("Density: {:?}", density.unwrap());
-        println!("Mean: {:?}", samples.clone().mean());
-        println!("Std: {:?}", samples.clone().std_dev());
+        let x = 0.1;
+        let k = 1000;
+        let knn_density = knn_pdf(k, x, samples.clone());
+        let kde_density = kde_pdf(k, x, samples.clone(), Kernel1d::Silverman); // { sigma: 1. }
+        println!("Density with kkn estimator: {:?}", knn_density.unwrap());
+        println!("Density with kde estimator: {:?}", kde_density.unwrap());
         println!("Pdf: {:?}", law.pdf(x));
     }
 }

@@ -68,6 +68,11 @@ impl<K> KdTree<K> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Gets the data in the tree
+    pub fn data(&self) -> Option<&Vec<K>> {
+        self.data.as_ref()
+    }
 }
 
 impl<K: Container> KdTree<K>
