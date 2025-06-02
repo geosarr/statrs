@@ -25,7 +25,6 @@ impl<K> Node<K> {
 #[derive(Debug, Clone)]
 pub struct KdTree<K> {
     root: Option<Box<Node<usize>>>,
-    len: usize,
     data: Option<Vec<K>>,
 }
 
@@ -41,8 +40,7 @@ impl<K> KdTree<K> {
     pub fn new() -> Self {
         Self {
             root: None,
-            len: 0,
-            data: None,
+            data: Some(Vec::new()),
         }
     }
 
@@ -55,7 +53,7 @@ impl<K> KdTree<K> {
     /// assert_eq!(tree.len(), 2);
     /// ```
     pub fn len(&self) -> usize {
-        self.len
+        self.data.as_ref().map_or(0, |data| data.len())
     }
 
     /// Tests whether or not the tree is empty.
@@ -70,8 +68,11 @@ impl<K> KdTree<K> {
     }
 
     /// Gets the data in the tree
-    pub fn data(&self) -> Option<&Vec<K>> {
-        self.data.as_ref()
+    pub fn data(&self) -> &[K] {
+        match &self.data {
+            Some(vec) => vec.as_slice(),
+            None => &[],
+        }
     }
 }
 
@@ -136,7 +137,6 @@ where
         );
         Self {
             root,
-            len,
             data: Some(keys),
         }
     }
@@ -179,46 +179,38 @@ where
         key: &K,
         k: usize,
         distance: D,
-    ) -> Option<KNearestNeighbors<K, K::Elem>>
+    ) -> KNearestNeighbors<K, K::Elem>
     where
         K: PartialEq,
         K::Elem: Sub<Output = K::Elem> + Order,
         D: Fn(&K, &K) -> K::Elem,
     {
-        self.k_nearest_neighbors_raw(key, k, distance).map(|knn| {
-            let data = self.data.as_ref().unwrap();
-            knn.iter()
-                .map(|neighbor| KthNearestNeighbor {
-                    point: data[neighbor.point].clone(),
-                    dist: neighbor.dist,
-                })
-                .collect()
-        })
+        let data = self.data();
+        self.k_nearest_neighbors_raw(key, k, distance)
+            .iter()
+            .map(|neighbor| KthNearestNeighbor {
+                point: data[neighbor.point].clone(),
+                dist: neighbor.dist,
+            })
+            .collect()
     }
 
-    pub(crate) fn k_nearest_neighbors_raw<D>(
+    pub fn k_nearest_neighbors_raw<D>(
         &self,
         key: &K,
         k: usize,
         distance: D,
-    ) -> Option<KNearestNeighbors<usize, K::Elem>>
+    ) -> KNearestNeighbors<usize, K::Elem>
     where
         K: PartialEq,
         K::Elem: Sub<Output = K::Elem> + Order,
         D: Fn(&K, &K) -> K::Elem,
     {
-        if self.root.is_none() | (k == 0) | self.data.is_none() {
-            return None;
+        if self.root.is_none() | (k == 0) | self.is_empty() {
+            return KNearestNeighbors::new();
         }
         let heap = BinaryHeap::with_capacity(k + 1);
-        Some(k_nearest_neighbors(
-            &self.root,
-            self.data.as_ref().unwrap(),
-            key,
-            heap,
-            k,
-            &distance,
-        ))
+        k_nearest_neighbors(&self.root, self.data(), key, heap, k, &distance)
     }
 }
 
@@ -381,7 +373,7 @@ where
 mod tests {
     use nalgebra::Vector1;
 
-    use crate::density::kd_tree::KdTree;
+    use crate::tree::kd_tree::KdTree;
 
     #[test]
     fn test_kdtree() {
@@ -397,7 +389,6 @@ mod tests {
         assert!(!tree.is_empty());
         let knn = tree
             .k_nearest_neighbors(&Vector1::new(6.5f64), 5, |a, b| (a - b).norm())
-            .unwrap()
             .into_sorted_vec();
         assert_eq!(knn[0].point, Vector1::new(7.));
         assert_eq!(knn[1].point, Vector1::new(5.));

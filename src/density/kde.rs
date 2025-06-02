@@ -1,11 +1,16 @@
 use core::f64::consts::{PI, SQRT_2};
 
-/// The implemented one dimensional [kernel functions][source]
+/// The implemented [kernel functions][source]
 ///
 /// source: https://en.wikipedia.org/wiki/Kernel_(statistics)
-pub enum Kernel1d {
+#[derive(Default)]
+pub enum Kernel {
+    #[default]
     Epanechnikov,
-    Gaussian { sigma: f64 },
+    Gaussian {
+        sigma: f64,
+        dim: i32,
+    },
     Uniform,
     Triangular,
     Biweigth,
@@ -17,7 +22,7 @@ pub enum Kernel1d {
     Silverman,
 }
 
-impl Kernel1d {
+impl Kernel {
     pub fn evaluate(&self, u: f64) -> f64 {
         match self {
             Self::Epanechnikov => {
@@ -27,8 +32,8 @@ impl Kernel1d {
                     0.75 * (1. - u.powi(2))
                 }
             }
-            Self::Gaussian { sigma } => {
-                (-0.5 * (u / sigma).powi(2)).exp() / (crate::consts::SQRT_2PI * sigma)
+            Self::Gaussian { sigma, dim } => {
+                (-0.5 * (u / sigma).powi(2)).exp() / (crate::consts::SQRT_2PI.powi(*dim) * sigma)
             }
             Self::Uniform => {
                 if u.abs() > 1. {
@@ -81,5 +86,20 @@ impl Kernel1d {
                 0.5 * (-abs_u_over_sqrt2).exp() * (PI / 4. + abs_u_over_sqrt2).sin()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kernel_1d() {
+        let kernel = Kernel::Epanechnikov;
+        assert_eq!(kernel.evaluate(0.5), 0.75 * 0.75);
+        assert_eq!(kernel.evaluate(1.5), 0.0);
+
+        let kernel = Kernel::Gaussian { sigma: 1.0, dim: 1 };
+        assert!((kernel.evaluate(0.0) - (1. / (SQRT_2 * PI.sqrt()))).abs() < 1e-10);
     }
 }

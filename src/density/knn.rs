@@ -1,48 +1,118 @@
-use core::{cmp::Ordering, f64::consts::PI};
-use num_traits::Zero;
+use core::{
+    cmp::Ordering,
+    f64::consts::PI,
+    iter::Sum,
+    ops::{Div, Sub},
+};
+use num_traits::{NumOps, Zero};
 use std::collections::BinaryHeap;
 
-use crate::function::gamma::gamma;
-
-use super::{kd_tree::KdTree, kde::Kernel1d};
+use crate::tree::kd_tree::KdTree;
+use crate::{density::kde::Kernel, function::gamma::gamma};
 
 fn orava_optimal_k(n_samples: f64) -> f64 {
     // Adapted from K-nearest neighbour kernel density estimation, the choice of optimal k; Jan Orava 2012
     (0.587 * n_samples.powf(4.0 / 5.0)).round().max(1.)
 }
-pub fn knn_pdf<S>(x: f64, samples: S) -> Option<f64>
+
+fn base_pdf<D, S, X>(
+    x: &X,
+    samples: S,
+    distance: D,
+) -> (f64, f64, KNearestNeighbors<usize, f64>, KdTree<X>)
 where
-    S: IntoIterator<Item = f64> + Container,
+    S: IntoIterator<Item = X> + Container,
+    X: Container<Elem = f64> + PartialEq,
+    D: Fn(&X, &X) -> X::Elem,
 {
     let n_samples = samples.length() as f64;
     let k = orava_optimal_k(n_samples);
-    KdTree::from(samples)
-        .k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
-        .map(|mut neighbors| {
-            let radius = neighbors.pop().unwrap().dist;
-            // (k / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d)))
-            (k / n_samples) * (gamma(1.5) / (PI.powf(0.5) * radius))
-        })
+    let tree = KdTree::from(samples);
+    let neighbors = tree.k_nearest_neighbors_raw(x, k as usize, distance);
+    (n_samples, k, neighbors, tree)
 }
 
-pub fn kde_pdf<S>(x: f64, samples: S, kernel: Kernel1d) -> Option<f64>
+/// Computes the k-nearest neighbor density estimate for a given point `x`
+/// using the samples provided.
+///
+/// The optimal `k` is computed using Orava's formula.
+///
+/// Returns `None` when `samples` is empty.
+pub fn knn_pdf<S, X>(x: X, samples: S) -> Option<f64>
 where
-    S: IntoIterator<Item = f64> + Container,
+    S: IntoIterator<Item = X> + Container,
+    X: Container<Elem = f64> + PartialEq,
 {
-    let n_samples = samples.length() as f64;
-    let tree = KdTree::from(samples);
-    let k = orava_optimal_k(n_samples);
-    tree.k_nearest_neighbors_raw(&x, k as usize, |a, b| (a - b).abs())
-        .map(|mut neighbors| {
-            let radius = neighbors.pop().unwrap().dist;
+    let (n_samples, k, mut neighbors, tree) =
+        base_pdf(&x, samples, |a, b| a.squared_l2_distance(b).sqrt());
+    if neighbors.is_empty() {
+        None
+    } else {
+        let radius = neighbors.pop().unwrap().dist;
+        let d = tree.data()[0].length() as f64;
+        Some((k / n_samples) * (gamma(d / 2. + 1.) / (PI.powf(d / 2.) * radius.powf(d))))
+    }
+}
+
+/// Computes the kernel density estimate for a given point `x`
+/// using the samples provided.
+///
+/// The optimal `k` is computed using Orava's formula.
+///
+/// Returns `None` when `samples` is empty.
+pub fn kde_pdf<S, X>(x: X, samples: S) -> Option<f64>
+where
+    S: IntoIterator<Item = X> + Container,
+    X: Container<Elem = f64> + PartialEq + Div<X::Elem, Output = X>,
+    for<'a> &'a X: Sub<&'a X, Output = X>,
+{
+    let (n_samples, _, mut neighbors, tree) =
+        base_pdf(&x, samples, |a, b| a.squared_l2_distance(b).sqrt());
+    if neighbors.is_empty() {
+        None
+    } else {
+        let radius = neighbors.pop().unwrap().dist;
+        // let dim = tree.data()[0].length() as i32;
+        // let kernel = Kernel::Gaussian { sigma: 1., dim };
+        let kernel = Kernel::Epanechnikov;
+        Some(
             (1. / (n_samples * radius))
                 * tree
                     .data()
-                    .unwrap()
                     .iter()
-                    .map(|xi| kernel.evaluate((x - xi) / radius))
-                    .sum::<f64>()
-        })
+                    .map(|xi| kernel.evaluate(x.squared_l2_distance(xi).sqrt() / radius))
+                    .sum::<f64>(),
+        )
+    }
+}
+
+/// Computes the kernel density estimate for a given one dimensional point `x`
+/// using the samples provided and a specified kernel.
+///
+/// The optimal `k` is computed using Orava's formula.
+///
+/// Returns `None` when `samples` is empty.
+pub fn kde_pdf_1d<S, X>(x: X, samples: S, kernel: Kernel) -> Option<f64>
+where
+    S: IntoIterator<Item = X> + Container,
+    X: Container<Elem = f64> + PartialEq + Div<X::Elem, Output = X::Elem>,
+    for<'a> &'a X: Sub<&'a X, Output = X>,
+{
+    let (n_samples, _, mut neighbors, tree) =
+        base_pdf(&x, samples, |a, b| a.squared_l2_distance(b));
+    if neighbors.is_empty() {
+        None
+    } else {
+        let radius = neighbors.pop().unwrap().dist.sqrt();
+        Some(
+            (1. / (n_samples * radius))
+                * tree
+                    .data()
+                    .iter()
+                    .map(|xi| kernel.evaluate((&x - xi) / radius))
+                    .sum::<f64>(),
+        )
+    }
 }
 
 /// Handles variable/point types for which nearest neighbors can be computed.
@@ -50,6 +120,18 @@ pub trait Container: Clone {
     type Elem;
     fn length(&self) -> usize;
     fn get(&self, index: usize) -> Self::Elem;
+    fn squared_l2_distance(&self, other: &Self) -> Self::Elem
+    where
+        Self::Elem: NumOps + Sum + Copy,
+    {
+        (0..self.length())
+            .map(|i| {
+                let elem = self.get(i);
+                let other_elem = other.get(i);
+                (elem - other_elem) * (elem - other_elem)
+            })
+            .sum::<Self::Elem>()
+    }
 }
 macro_rules! impl_container_for_num {
     ($($t:ty),*) => {
@@ -61,6 +143,9 @@ macro_rules! impl_container_for_num {
                 }
                 fn get(&self, _index: usize) -> Self::Elem {
                     *self
+                }
+                fn squared_l2_distance(&self, other: &Self) -> Self::Elem {
+                    (self - other) * (self - other)
                 }
             }
         )*
@@ -153,23 +238,24 @@ impl_float_order!(f32, f64);
 
 #[cfg(test)]
 mod tests {
-    use crate::distribution::{Continuous, Normal};
+    use crate::distribution::Normal;
+    use nalgebra::Vector2;
     use rand::distributions::Distribution;
 
     use super::*;
 
     #[test]
     fn test_knn_pdf() {
-        let law = Normal::new(1., 1.).unwrap();
+        let law = Normal::new(0., 1.).unwrap();
         let mut rng = rand::thread_rng();
         let samples = (0..100000)
-            .map(|_| law.sample(&mut rng))
+            .map(|_| Vector2::new(law.sample(&mut rng), law.sample(&mut rng)))
             .collect::<Vec<_>>();
-        let x = 1.;
+        let x = Vector2::new(0., 0.);
         let knn_density = knn_pdf(x, samples.clone());
-        let kde_density = kde_pdf(x, samples.clone(), Kernel1d::Silverman); // { sigma: 1. }
+        let kde_density = kde_pdf(x, samples.clone()); // { sigma: 1. }
         println!("Density with kkn estimator: {:?}", knn_density.unwrap());
         println!("Density with kde estimator: {:?}", kde_density.unwrap());
-        println!("Pdf: {:?}", law.pdf(x));
+        // println!("Pdf: {:?}", law.pdf(x));
     }
 }
