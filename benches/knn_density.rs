@@ -3,13 +3,16 @@ extern crate rand;
 extern crate statrs;
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use nalgebra::Vector3;
 use statrs::tree::kd_tree::KdTree;
 
 fn generate_1d(n_samples: usize) -> Vec<f64> {
     (0..n_samples).map(|_| rand::random()).collect()
 }
-fn generate_3d(n_samples: usize) -> Vec<[f64; 3]> {
-    (0..n_samples).map(|_| rand::random()).collect()
+fn generate_3d(n_samples: usize) -> Vec<Vector3<f64>> {
+    (0..n_samples)
+        .map(|_| Vector3::new(rand::random(), rand::random(), rand::random()))
+        .collect()
 }
 fn squared_l2_distance(a: &[f64], b: &[f64]) -> f64 {
     a.iter()
@@ -51,6 +54,21 @@ fn bench_1d_density(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_kd_tree, bench_1d_density);
+fn bench_3d_density(c: &mut Criterion) {
+    let samples = generate_3d(100_000);
+    let mut group = c.benchmark_group("density");
+    group.bench_function("knn_density_3d", |b| {
+        b.iter(|| {
+            let _f = statrs::density::knn::knn_pdf(Vector3::new(0., 0., 0.), samples.clone());
+        });
+    });
+    group.bench_function("kde_density_3d", |b| {
+        b.iter(|| {
+            let _f = statrs::density::knn::kde_pdf(Vector3::new(0., 0., 0.), samples.clone());
+        })
+    });
+}
+
+criterion_group!(benches, bench_kd_tree, bench_1d_density, bench_3d_density);
 
 criterion_main!(benches);
